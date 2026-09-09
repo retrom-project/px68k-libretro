@@ -17,3 +17,6 @@ libretro/libs
 libretro/obj
 
 .retrom-build/
+
+__pycache__/
+*.pyc

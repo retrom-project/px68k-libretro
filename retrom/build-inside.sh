@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+emmake make -f Makefile.libretro platform=emscripten C68K=0 STATIC_LINKING=1 clean
 emmake make -f Makefile.libretro platform=emscripten C68K=0 STATIC_LINKING=1 GIT_VERSION="$RETROM_CORE_REVISION" -j4
 cp px68k_libretro_emscripten.bc .retrom-build/px68k.a
 emcc retrom/bridge.c .retrom-build/px68k.a -I. -Ilibretro-common/include -Ilibretro -Ix68k \
