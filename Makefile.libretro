@@ -2,7 +2,7 @@
 DEBUG = 0
 USE_LIBRETRO_VFS = 1
 
-GIT_VERSION := " $(shell git rev-parse --short HEAD)"
+GIT_VERSION ?= " $(shell git rev-parse --short HEAD)"
 
 SPACE :=
 SPACE := $(SPACE) $(SPACE)

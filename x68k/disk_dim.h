@@ -16,3 +16,5 @@ int DIM_Write(int drv, FDCID* id, uint8_t* buf, int del);
 int DIM_GetCurrentID(int drv, FDCID* id);
 
 #endif /* _WINX68K_DIM_H */
+
+int DIM_StateAction(StateMem *sm, int load, int data_only);

@@ -185,6 +185,8 @@ enum {
 
 static int menu_mode = menu_out;
 
+int retrom_menu_active(void) { return menu_mode != menu_out; }
+
 static retro_video_refresh_t video_cb;
 static retro_environment_t environ_cb;
 static retro_input_poll_t input_poll_cb;
@@ -2460,20 +2462,12 @@ void retro_run(void)
    {
       pre_main();
       firstcall     = 0;
-      webx68k_ram_watch_refresh();
-      webx68k_ram_watch_selftest(); /* 初期化の最後に陽性対照 */
-      webx68k_mem_read_watch_refresh();
-      webx68k_mem_read_watch_selftest(); /* 初期化の最後に陽性対照 */
-      webx68k_drv_hook_refresh();
       /* Initialization done */
       update_variables(0);
       soundbuf_size = current_soundbuf_size();
       return;
    }
 
-   webx68k_ram_watch_refresh(); /* 毎フレーム先頭でJS側の監視範囲をstaticへ反映 */
-   webx68k_mem_read_watch_refresh();
-   webx68k_drv_hook_refresh();
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
       update_variables(1);
@@ -2510,7 +2504,7 @@ void retro_run(void)
    rumble_frames();
 
    FDD_IsReading = 0;
-   SASI_IsAccessing = 0;
+
 
    if (     (menu_mode == menu_out)
          && (  Config.AudioDesyncHack
@@ -2522,8 +2516,6 @@ void retro_run(void)
 
       WinX68k_Exec();
    }
-   SCSI_LogPcIfRealRom();
-   SCSI_RefreshHostConfig();
 
    mouse_x       = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
    mouse_y       = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);

@@ -26,60 +26,6 @@ static uint8_t SASI_Error        = 0;
 static uint8_t SASI_SenseStatBuf[4];
 static uint8_t SASI_SenseStatPtr = 0;
 
-int SASI_IsAccessing = 0;
-/*
- * ゲストが HDD へ書き込んだかどうか (WebX68k向け)。
- * SASI_IsAccessing は読み書き両方で立ちフレームごとにクリアされるが、こちらは
- * 「前回ホストが保存してから書き込みがあったか」なので自動クリアしない。
- */
-int SASI_Dirty = 0;
-
-/*
- * 調査用(2026-09-04、docs/STORAGE-SCSI.md参照): x68k/scsi.cのSCSI_HandleRequestHeader
- * 側に足した調査用ログ・独立カウンタと同じ趣旨のものをSASI側にも足す。
- * 「SASI(成功する側)が、同じ場面(2クラスタ目の確保)で実際にどのセクタを読み書き
- * しているか」を、SCSI側と同じ形式で突き合わせるために使う。
- *
- * SASIは実機同様のレジスタ/フェーズ遷移プロトコルであり、SCSI側のような
- * 「26バイト要求ヘッダ」単位ではなく「256バイトセクタ」単位(SASI_Blocksが
- * 1減るたび)で1件とみなす。ログはlog_cb経由(NULLチェック必須、log_cbへ
- * NULLを渡すと落ちる既知の罠があるため必ずガードする)。加えてlog_cbを
- * 一切通さない独立カウンタも積む(「ログが途絶えた=止まった」の誤読を
- * 過去に複数回踏んでいるため、ログ非依存の裏取り経路を必ず用意する)。
- * どちらも挙動そのものには一切影響しない(読み取り専用の観測)。
- */
-unsigned int SASIReqTotalCount = 0;		/* SASI_CheckCmdが呼ばれた総回数(コマンド単位) */
-unsigned int SASIReadCount = 0;		/* 256バイトセクタの読み出し完了回数 */
-unsigned int SASILastReadLba = 0xffffffff;	/* 直近に読み終えた256バイトセクタのLBA */
-unsigned int SASIWriteCount = 0;		/* 256バイトセクタの書き込み完了回数 */
-unsigned int SASILastWriteLba = 0xffffffff;	/* 直近に書き終えた256バイトセクタのLBA */
-
-/*
- * 調査用(2026-09-04、実行トレース): x68k/mem_wrap.c 側の実行トレースを立ち上げる。
- * SCSI側(x68k/scsi.c)の論理セクタ54(端数、書き戻しが出ない)に対応する、
- * SASI側の「端数」256バイトセクタの読み出しを処理し終えた瞬間にトリガする。
- *
- * 値は試験片(scripts/_gen-sasi-multi.mts で作ったSASIイメージにSRC2.DAT(1500バイト)/
- * DST2.DAT(1500バイト、別パターン)を置き、copy c:\src2.dat c:\dst2.dat を実行)に
- * 固定してある。2026-09-04の実測(このイメージそのもので[SASI-READ]/[SASI-WRITE]の
- * 生ログを確認): 新DST2.DATのデータ領域はSASI論理セクタ732〜737の6セクタ(1500バイト、
- * 256バイト×6=1536バイトの中に収まる)。732〜735は1クラスタ分(1024バイト)の
- * 整列済みセクタで、736がその続きの2クラスタ目の先頭(整列済み、SCSI側の論理セクタ53に
- * 相当)、737がファイル末尾を含む「端数」セクタ(256バイトのうち実データは220バイトのみ、
- * SCSI側の論理セクタ54に相当)。738・739はファイルの実データ範囲を超えており
- * 読み出しはされるが元々書く必要が無いセクタなので、SCSI側の「端数」とは別物であり
- * トリガには使わない。737は実測でREAD後にWRITEもされている(成功する側)。
- */
-static const uint32_t WEBX68K_SASI_TRACE_TRIGGER_LBA = 737;
-extern void webx68k_trace_start(const char *tag);
-/* 2026-09-04: [SASI-READ]/[SASI-WRITE]はセクタごとの調査用ログのため、
- * scsi.c側のSCSIVerboseLogと同じホスト設定(webx68k_scsi_verbose_log、
- * 既定0=出さない)で一括オフにする。SASIReadCount/SASIWriteCount等の
- * log_cbを介さないカウンタには一切影響しない。sasi.cにはscsi.cのような
- * 毎フレームのホスト設定キャッシュが無いため、ここでは(呼び出し頻度も
- * セクタ単位でscsi.cのSPCポーリングほど密ではないため)直接呼ぶ。 */
-extern int webx68k_scsi_verbose_log(void);
-
 int SASI_StateAction(StateMem *sm, int load, int data_only)
 {
 	SFORMAT StateRegs[] = 
@@ -203,29 +149,10 @@ uint8_t FASTCALL SASI_Read(uint32_t adr)
 	{
 		if ((SASI_Phase==3)&&(SASI_RW))
 		{
-			SASI_IsAccessing = 1;
 			ret = SASI_Buf[SASI_BufPtr++];
 			if (SASI_BufPtr==256)
 			{
 				SASI_Blocks--;
-				/* 調査用(2026-09-04): 256バイトセクタ1件ぶんの読み出しが
-				 * 完了した瞬間。SASI_SectorはSASI_Sector++より前、
-				 * SASI_BufはSASI_Seek()で上書きされる前なので、
-				 * 「今読み終えたセクタ」の内容をそのまま観測できる。 */
-				SASIReadCount++;
-				SASILastReadLba = SASI_Sector;
-				if (SASI_Sector == WEBX68K_SASI_TRACE_TRIGGER_LBA)
-					webx68k_trace_start("SASI");
-				if (log_cb && webx68k_scsi_verbose_log())
-					log_cb(RETRO_LOG_INFO,
-						"[SASI-READ] lba=%u blocks_left=%u"
-						" buf[0..15]=%02x %02x %02x %02x %02x %02x %02x %02x"
-						" %02x %02x %02x %02x %02x %02x %02x %02x\n",
-						(unsigned)SASI_Sector, (unsigned)SASI_Blocks,
-						SASI_Buf[0], SASI_Buf[1], SASI_Buf[2], SASI_Buf[3],
-						SASI_Buf[4], SASI_Buf[5], SASI_Buf[6], SASI_Buf[7],
-						SASI_Buf[8], SASI_Buf[9], SASI_Buf[10], SASI_Buf[11],
-						SASI_Buf[12], SASI_Buf[13], SASI_Buf[14], SASI_Buf[15]);
 				if (SASI_Blocks)
 				{
 					SASI_Sector++;
@@ -281,11 +208,6 @@ static void SASI_CheckCmd(void)
 {
 	int16_t result;
 	SASI_Unit = (SASI_Cmd[1]>>5) & 1;
-
-	/* 調査用(2026-09-04): log_cbを一切通さない独立カウンタ。コマンド単位(6バイト
-	 * コマンドを1回受理するたび)でインクリメントする。SCSI側のSCSIReqTotalCountと
-	 * 同じ「本当に要求が来なくなったか」を確かめるための裏取り用途。 */
-	SASIReqTotalCount++;
 
 	switch(SASI_Cmd[0])
    {
@@ -344,7 +266,6 @@ static void SASI_CheckCmd(void)
          SASI_RW = 0;
          SASI_BufPtr = 0;
          SASI_Stat = 0;
-         SASI_Dirty = 1;
          memset(SASI_Buf, 0, 256);
          result = SASI_Seek();
          if ( (result==0)||(result==-1) )
@@ -430,27 +351,11 @@ void FASTCALL SASI_Write(uint32_t adr, uint8_t data)
 		}
 		else if ((SASI_Phase==3) && (!SASI_RW))
 		{
-			SASI_IsAccessing = 1;
 			SASI_Buf[SASI_BufPtr++] = data;
 			if (SASI_BufPtr==256)
 			{
 				result = SASI_Flush();
 				SASI_Blocks--;
-				/* 調査用(2026-09-04): 256バイトセクタ1件ぶんの書き込み(Flush)が
-				 * 完了した瞬間。SASI_Sector/SASI_Bufはまだ更新前(次のセクタへ
-				 * 進む前)なので、「今書き終えたセクタ」の内容を観測できる。 */
-				SASIWriteCount++;
-				SASILastWriteLba = SASI_Sector;
-				if (log_cb && webx68k_scsi_verbose_log())
-					log_cb(RETRO_LOG_INFO,
-						"[SASI-WRITE] lba=%u blocks_left=%u flush_result=%d"
-						" buf[0..15]=%02x %02x %02x %02x %02x %02x %02x %02x"
-						" %02x %02x %02x %02x %02x %02x %02x %02x\n",
-						(unsigned)SASI_Sector, (unsigned)SASI_Blocks, (int)result,
-						SASI_Buf[0], SASI_Buf[1], SASI_Buf[2], SASI_Buf[3],
-						SASI_Buf[4], SASI_Buf[5], SASI_Buf[6], SASI_Buf[7],
-						SASI_Buf[8], SASI_Buf[9], SASI_Buf[10], SASI_Buf[11],
-						SASI_Buf[12], SASI_Buf[13], SASI_Buf[14], SASI_Buf[15]);
 				if (SASI_Blocks)
 				{
 					SASI_Sector++;
