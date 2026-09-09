@@ -63,6 +63,8 @@ int FDD_StateAction(StateMem *sm, int load, int data_only)
 
 	int ret = PX68KSS_StateAction(sm, load, data_only, StateRegs, "X68K_FDD", false);
 
+	ret &= DIM_StateAction(sm, load, data_only);
+	ret &= XDF_StateAction(sm, load, data_only);
 	return ret;
 }
 

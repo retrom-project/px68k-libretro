@@ -339,3 +339,18 @@ int DIM_Write(int drv, FDCID* id, uint8_t* buf, int del)
 	DIMCur[drv] = IncTrk(drv, id->r-1);
 	return 1;
 }
+
+int DIM_StateAction(StateMem *sm, int load, int data_only) {
+    int result = 1;
+    for (int drive = 0; drive < 4; ++drive) {
+        if (!DIMImg[drive]) continue;
+        char section[32];
+        snprintf(section, sizeof(section), "RETROM_DIM_%d", drive);
+        SFORMAT fields[] = {
+            SFVARN(DIMCur[drive], "sector"), SFVARN(DIMTrk[drive], "track"),
+            SFARRAYN(DIMImg[drive], 1024*9*170+sizeof(DIM_HEADER), "image"), SFEND
+        };
+        result &= PX68KSS_StateAction(sm, load, data_only, fields, section, false);
+    }
+    return result;
+}

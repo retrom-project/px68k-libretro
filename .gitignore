@@ -15,3 +15,8 @@ px68k-ios/px68k-ios.xcodeproj/xcuserdata
 *.bc
 libretro/libs
 libretro/obj
+
+.retrom-build/
+
+__pycache__/
+*.pyc

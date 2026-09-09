@@ -14,3 +14,5 @@ int XDF_Write(int drv, FDCID* id, uint8_t *buf, int del);
 int XDF_GetCurrentID(int drv, FDCID* id);
 
 #endif /* _WINX68K_XDF_H */
+
+int XDF_StateAction(StateMem *sm, int load, int data_only);

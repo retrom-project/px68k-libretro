@@ -189,3 +189,18 @@ int XDF_Write(int drv, FDCID* id, uint8_t *buf, int del)
 	XDFCur[drv] = (id->r)&7;
 	return 1;
 }
+
+int XDF_StateAction(StateMem *sm, int load, int data_only) {
+    int result = 1;
+    for (int drive = 0; drive < 4; ++drive) {
+        if (!XDFImg[drive]) continue;
+        char section[32];
+        snprintf(section, sizeof(section), "RETROM_XDF_%d", drive);
+        SFORMAT fields[] = {
+            SFVARN(XDFCur[drive], "sector"), SFVARN(XDFTrk[drive], "track"),
+            SFARRAYN(XDFImg[drive], 1261568, "image"), SFEND
+        };
+        result &= PX68KSS_StateAction(sm, load, data_only, fields, section, false);
+    }
+    return result;
+}
